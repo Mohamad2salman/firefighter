@@ -6,14 +6,15 @@ import util.TargetStrategy;
 import java.util.*;
 
 
-public class FirefighterBoard implements Board<List<ModelElement>> {
+public class FirefighterBoard implements Board<List<ModelElement>>,BoardContext{
   private final int columnCount;
   private final int rowCount;
   private final int initialFireCount;
   private final int initialFirefighterCount;
-  private final TargetStrategy targetStrategy = new TargetStrategy();
-  private List<Position> firefighterPositions;
-  private Set<Position> firePositions;
+  private List<FireFighter>  firefighters;
+  private Set<Fire> fires;
+  private Set<Position> firesToCreate;
+  private Set<Position> firesToExtinguish;
   private Map<Position, List<Position>> neighbors = new HashMap();
   private final Position[][] positions;
   private int step = 0;
@@ -41,12 +42,12 @@ public class FirefighterBoard implements Board<List<ModelElement>> {
   }
 
   public void initializeElements() {
-    firefighterPositions = new ArrayList<>();
-    firePositions = new HashSet<>();
+    firefighters = new ArrayList<>();
+    fires = new HashSet<>();
     for (int index = 0; index < initialFireCount; index++)
-      firePositions.add(randomPosition());
+      fires.add(new Fire(randomPosition()));
     for (int index = 0; index < initialFirefighterCount; index++)
-      firefighterPositions.add(randomPosition());
+      firefighters.add(new FireFighter (randomPosition()));
   }
 
   private Position randomPosition() {
@@ -56,11 +57,18 @@ public class FirefighterBoard implements Board<List<ModelElement>> {
   @Override
   public List<ModelElement> getState(Position position) {
     List<ModelElement> result = new ArrayList<>();
-    for (Position firefighterPosition : firefighterPositions)
-      if (firefighterPosition.equals(position))
-        result.add(ModelElement.FIREFIGHTER);
-    if (firePositions.contains(position))
-      result.add(ModelElement.FIRE);
+    for (FireFighter fireFighter : firefighters) {
+        if (fireFighter.getPosition().equals(position)) {
+            result.add(ModelElement.FIREFIGHTER);
+            break;
+        }
+    }
+    for (Fire fire : fires) {
+        if (fire.getPosition().equals(position)) {
+            result.add(ModelElement.FIRE);
+            break;
+        }
+    }
     return result;
   }
 
@@ -75,50 +83,36 @@ public class FirefighterBoard implements Board<List<ModelElement>> {
   }
 
   public List<Position> updateToNextGeneration() {
-    List<Position> modifiedPositions = updateFirefighters();
-    modifiedPositions.addAll(updateFires());
-    step++;
-    return modifiedPositions;
-  }
-
-  private List<Position> updateFires() {
     List<Position> modifiedPositions = new ArrayList<>();
-    if (step % 2 == 0) {
-      List<Position> newFirePositions = new ArrayList<>();
-      for (Position fire : firePositions) {
-        newFirePositions.addAll(neighbors.get(fire));
-      }
-      firePositions.addAll(newFirePositions);
-      modifiedPositions.addAll(newFirePositions);
+    firesToCreate = new HashSet<>();
+    firesToExtinguish = new HashSet<>();
+    for (FireFighter fireFighter : firefighters) {
+        Position oldPosition = fireFighter.getPosition();
+        fireFighter.update(this);
+        modifiedPositions.add(oldPosition);
+        modifiedPositions.add(fireFighter.getPosition());
     }
-    return modifiedPositions;
 
+    for(Fire fire : new HashSet<>(fires)){
+        fire.update(this);
+    }
+
+    fires.removeIf(fire -> firesToExtinguish.contains(fire.getPosition()));
+    modifiedPositions.addAll(firesToExtinguish);
+    Set<Position> currentFirePostion =getFirePositions();
+    for( Position position : firesToCreate) {
+        if (!currentFirePostion.contains(position)) {
+            fires.add(new Fire(position));
+            modifiedPositions.add(position);
+        }
+    }
+    step++;
+    return new ArrayList<>(modifiedPositions);
   }
 
   @Override
   public int stepNumber() {
     return step;
-  }
-
-  private List<Position> updateFirefighters() {
-    List<Position> modifiedPosition = new ArrayList<>();
-    List<Position> firefighterNewPositions = new ArrayList<>();
-    for (Position firefighterPosition : firefighterPositions) {
-      Position newFirefighterPosition =
-              targetStrategy.neighborClosestToFire(firefighterPosition,
-                      firePositions, neighbors);
-      firefighterNewPositions.add(newFirefighterPosition);
-      extinguish(newFirefighterPosition);
-      modifiedPosition.add(firefighterPosition);
-      modifiedPosition.add(newFirefighterPosition);
-      List<Position> neighborFirePositions = neighbors.get(newFirefighterPosition).stream()
-              .filter(firePositions::contains).toList();
-      for (Position firePosition : neighborFirePositions)
-        extinguish(firePosition);
-      modifiedPosition.addAll(neighborFirePositions);
-    }
-    firefighterPositions = firefighterNewPositions;
-    return modifiedPosition;
   }
 
   @Override
@@ -127,22 +121,41 @@ public class FirefighterBoard implements Board<List<ModelElement>> {
     initializeElements();
   }
 
-  private void extinguish(Position position) {
-    firePositions.remove(position);
+  public void extinguish(Position position) {
+    firesToExtinguish.add(position);
   }
 
+  public void createFire(Position position) {
+      firesToCreate.add(position);
+  }
 
   @Override
   public void setState(List<ModelElement> state, Position position) {
-    firePositions.remove(position);
-    for (; ; ) {
-      if (!firefighterPositions.remove(position)) break;
-    }
+    fires.removeIf(fire -> fire.getPosition().equals(position));
+    firefighters.removeIf(fireFighter ->  fireFighter.getPosition().equals(position));
     for (ModelElement element : state) {
       switch (element) {
-        case FIRE -> firePositions.add(position);
-        case FIREFIGHTER -> firefighterPositions.add(position);
+        case FIRE -> fires.add(new Fire(position));
+        case FIREFIGHTER -> firefighters.add(new FireFighter(position));
       }
     }
   }
+    public Map<Position, List<Position>> getNeighborsMap() {
+        return this.neighbors;
+    }
+
+    @Override
+    public List<Position> getNeighbors(Position p) {
+        return this.neighbors.get(p);
+    }
+
+    @Override
+    public Set<Position> getFirePositions() {
+        Set<Position> positions = new HashSet<>();
+        for (Fire fire : fires) {
+            positions.add(fire.getPosition());
+        }
+        return positions;
+    }
+
 }

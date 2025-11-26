@@ -5,7 +5,6 @@ import util.Position;
 import java.util.List;
 
 public class Fire extends AbstractEntity{
-    Position position;
     public Fire(Position position){
         super(position);
     }
